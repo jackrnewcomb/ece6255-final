@@ -1,0 +1,1 @@
+# CLI Entry point. Takes input wav, t1, t2, and scale, calls the pipeline
