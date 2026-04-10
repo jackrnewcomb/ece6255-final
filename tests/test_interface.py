@@ -71,3 +71,92 @@ def test_process_file_batch_happy_path(tmp_path: Path, monkeypatch):
     assert output_sr == 8000
     assert output_data.ndim == 1
     assert output_data.size > 0
+
+def test_process_file_target_duration_happy_path(tmp_path: Path):
+    input_path = tmp_path / "input.wav"
+    output_path = tmp_path / "output.wav"
+    _write_test_wav(input_path)
+
+    process_file(
+        str(input_path),
+        str(output_path),
+        t1=0.2,
+        t2=0.4,
+        target_duration=0.5,
+    )
+
+    assert output_path.exists()
+    sample_rate, output = wavfile.read(output_path)
+    assert sample_rate == 8000
+    assert output.ndim == 1
+    assert output.size > 0
+
+def test_process_file_rejects_scale_and_target_duration_together(tmp_path: Path):
+    input_path = tmp_path / "input.wav"
+    output_path = tmp_path / "output.wav"
+    _write_test_wav(input_path)
+
+    with pytest.raises(ValueError, match="either scale or target_duration"):
+        process_file(
+            str(input_path),
+            str(output_path),
+            t1=0.2,
+            t2=0.4,
+            scale=1.5,
+            target_duration=0.5,
+        )
+
+def test_process_file_rejects_missing_scale_and_target_duration(tmp_path: Path):
+    input_path = tmp_path / "input.wav"
+    output_path = tmp_path / "output.wav"
+    _write_test_wav(input_path)
+
+    with pytest.raises(ValueError, match="Must provide either scale or target_duration"):
+        process_file(
+            str(input_path),
+            str(output_path),
+            t1=0.2,
+            t2=0.4,
+        )
+
+def test_process_file_rejects_nonpositive_target_duration(tmp_path: Path):
+    input_path = tmp_path / "input.wav"
+    output_path = tmp_path / "output.wav"
+    _write_test_wav(input_path)
+
+    with pytest.raises(ValueError, match="target_duration must be positive"):
+        process_file(
+            str(input_path),
+            str(output_path),
+            t1=0.2,
+            t2=0.4,
+            target_duration=0.0,
+        )
+
+def test_process_file_batch_target_duration_happy_path(tmp_path: Path, monkeypatch):
+    input_path = tmp_path / "input.wav"
+    output_path = tmp_path / "output.wav"
+    csv_path = tmp_path / "edits.csv"
+
+    _write_test_wav(input_path, sample_rate=8000, seconds=1.0)
+
+    with csv_path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["t1", "t2", "scale", "target_duration"])
+        writer.writeheader()
+        writer.writerow({"t1": 0.2, "t2": 0.4, "scale": "", "target_duration": 0.5})
+
+    def fake_time_scale_psola(segment, sample_rate, scale):
+        old_positions = np.linspace(0, len(segment) - 1, num=len(segment))
+        new_length = max(1, int(round(len(segment) * scale)))
+        new_positions = np.linspace(0, len(segment) - 1, num=new_length)
+        return np.interp(new_positions, old_positions, segment).astype(np.float32)
+
+    monkeypatch.setattr(interface_module, "time_scale_psola", fake_time_scale_psola)
+
+    process_file_batch(str(input_path), str(output_path), str(csv_path))
+
+    assert output_path.exists()
+    output_sr, output_data = wavfile.read(output_path)
+    assert output_sr == 8000
+    assert output_data.ndim == 1
+    assert output_data.size > 0
