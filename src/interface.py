@@ -89,19 +89,44 @@ def process_file_batch(input_path: str, output_path: str, csv_path: str):
     sample_rate, samples = load_wav(input_path)
     edits = load_edit_spec(csv_path)
 
-    # Apply in ascending time order
+    # Treat CSV times as referring to the ORIGINAL input timeline.
     edits = sorted(edits, key=lambda e: e["t1"])
 
+    for prev, curr in zip(edits, edits[1:]):
+        if curr["t1"] < prev["t2"]:
+            raise ValueError(
+                f"Overlapping batch edits are not supported: "
+                f"({prev['t1']}, {prev['t2']}) overlaps ({curr['t1']}, {curr['t2']})"
+            )
+
     current = samples
+    time_offset = 0.0  # cumulative shift between original timeline and current signal
+
     for edit in edits:
+        original_t1 = edit["t1"]
+        original_t2 = edit["t2"]
+
+        resolved_scale = _resolve_scale(
+            original_t1,
+            original_t2,
+            edit.get("scale"),
+            edit.get("target_duration"),
+        )
+
+        original_duration = original_t2 - original_t1
+        new_duration = original_duration * resolved_scale
+
+        adjusted_t1 = original_t1 + time_offset
+        adjusted_t2 = original_t2 + time_offset
+
         current = _apply_single_edit(
             current,
             sample_rate,
-            t1=edit["t1"],
-            t2=edit["t2"],
-            scale=edit.get("scale"),
-            target_duration=edit.get("target_duration"),
+            t1=adjusted_t1,
+            t2=adjusted_t2,
+            scale=resolved_scale,
         )
 
-    save_wav(output_path, sample_rate, current)
+        time_offset += new_duration - original_duration
 
+    save_wav(output_path, sample_rate, current)
