@@ -1,10 +1,12 @@
+import csv
 from pathlib import Path
 
 import numpy as np
 import pytest
 from scipy.io import wavfile
 
-from src.interface import process_file
+import src.interface as interface_module
+from src.interface import process_file, process_file_batch
 
 
 def _write_test_wav(path: Path, sample_rate: int = 8000, seconds: float = 1.0):
@@ -39,3 +41,33 @@ def test_process_file_rejects_nonpositive_scale(tmp_path: Path):
 def test_process_file_rejects_missing_input(tmp_path: Path):
     with pytest.raises(FileNotFoundError, match="Input file not found"):
         process_file(str(tmp_path / "missing.wav"), str(tmp_path / "out.wav"), t1=0.2, t2=0.4, scale=1.0)
+
+
+def test_process_file_batch_happy_path(tmp_path: Path, monkeypatch):
+    input_path = tmp_path / "input.wav"
+    output_path = tmp_path / "output.wav"
+    csv_path = tmp_path / "edits.csv"
+
+    _write_test_wav(input_path, sample_rate=8000, seconds=1.0)
+
+    with csv_path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["t1", "t2", "scale"])
+        writer.writeheader()
+        writer.writerow({"t1": 0.2, "t2": 0.4, "scale": 1.5})
+        writer.writerow({"t1": 0.6, "t2": 0.8, "scale": 0.8})
+
+    def fake_time_scale_psola(segment, sample_rate, scale):
+        old_positions = np.linspace(0, len(segment) - 1, num=len(segment))
+        new_length = max(1, int(round(len(segment) * scale)))
+        new_positions = np.linspace(0, len(segment) - 1, num=new_length)
+        return np.interp(new_positions, old_positions, segment).astype(np.float32)
+
+    monkeypatch.setattr(interface_module, "time_scale_psola", fake_time_scale_psola)
+
+    process_file_batch(str(input_path), str(output_path), str(csv_path))
+
+    assert output_path.exists()
+    output_sr, output_data = wavfile.read(output_path)
+    assert output_sr == 8000
+    assert output_data.ndim == 1
+    assert output_data.size > 0
