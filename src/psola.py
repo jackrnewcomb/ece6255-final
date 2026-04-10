@@ -2,7 +2,7 @@
 
 import numpy as np
 
-def time_scale_psola(segment: np.ndarray, sample_rate: int, scale: float) -> np.ndarray:
+def time_scale_psola(segment, sample_rate, scale):
     if scale <= 0:
         raise ValueError("scale must be positive")
-    return segment.copy()
+    return 0.3 * segment
