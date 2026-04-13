@@ -1,0 +1,38 @@
+\documentclass{article}
+\usepackage[margin=1in]{geometry}
+
+\title{ECE6255 - Team 9 Report}
+\author{Jack Newcomb, Anish Nair, Hao Ma}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+The goal of this project is to develop a software system for modifying the duration of selected segments of a speech signal. The framework is designed to support user-specified edits in either of two forms: a scaling factor applied to a selected segment, or a desired target duration for that segment. In addition, the system supports multiple edits within a single audio file, and is intended to perform duration modification while preserving perceptually important speech characteristics as well as possible.
+
+To support this goal, a modular processing pipeline was designed that loads an input audio signal, parses one or more requested edits, applies duration modification to the selected segments, and writes the resulting output signal. This structure separates the signal-processing algorithm from the surrounding application logic, making the system easier to test, validate, and extend.
+
+For the core duration-modification stage, we selected the Pitch-Synchronous Overlap and Add (PSOLA) method. PSOLA is a well-known speech processing technique for time-scale modification because it allows changes in segment duration while better preserving pitch-related structure than naive resampling approaches. In this project, PSOLA serves as the primary algorithmic method for modifying speech duration within the broader editing framework.
+
+\section{System Overview}
+We implemented ...
+
+\section{Software Architecture}
+The results were ...
+
+\section{Configuration and Usage}
+
+\section{Duration Modification Algorithm}
+
+\section{Evaluation Methodology}
+
+\section{Results}
+
+\section{Discussion and Limitations}
+
+\section{Conclusion}
+
+\end{document}
