@@ -1,309 +1,318 @@
-
 import numpy as np
+from scipy.signal import correlate
 
 
 def time_scale_psola(segment: np.ndarray, sample_rate: int, scale: float) -> np.ndarray:
     """
-    Time-scale a 1D audio segment using a simple TD-PSOLA-style method.
+    Time-scale speech using TD-PSOLA without altering pitch.
 
-    Parameters
-    ----------
-    segment : np.ndarray
-        1D mono audio segment.
-    sample_rate : int
-        Audio sample rate in Hz.
-    scale : float
-        Duration scale factor.
-        scale > 1.0 => longer
-        scale < 1.0 => shorter
+    Args:
+        segment: Mono audio samples (float, typically -1 to 1)
+        sample_rate: Sample rate in Hz
+        scale: Duration multiplier (>1 = longer/slower, <1 = shorter/faster)
 
-    Returns
-    -------
-    np.ndarray
-        Time-scaled segment as a 1D array.
-
-    Notes
-    -----
-    This is a simplified PSOLA implementation intended for voiced speech segments.
-    If pitch estimation fails or the segment is too short, it falls back to linear
-    interpolation resampling so the pipeline remains robust.
+    Returns:
+        Time-scaled audio as np.ndarray
     """
     if scale <= 0:
         raise ValueError("scale must be positive")
-
-    segment = np.asarray(segment)
-    if segment.ndim != 1:
-        raise ValueError("segment must be a 1D numpy array")
-
-    if len(segment) == 0:
+    if segment.size == 0:
         return segment.copy()
-
-    original_dtype = segment.dtype
-    x = segment.astype(np.float64, copy=False)
-
-    target_length = max(1, int(round(len(x) * scale)))
-
-    # Fast path for identity scaling
     if np.isclose(scale, 1.0, atol=1e-6):
         return segment.copy()
 
-    # Too short for reliable PSOLA -> fallback
-    if len(x) < max(32, sample_rate // 100):  # about 10 ms or minimum small size
-        y = _linear_resample(x, target_length)
-        return _cast_like_input(y, original_dtype)
+    signal = np.asarray(segment, dtype=np.float64)
 
-    # Estimate pitch period
-    pitch_period = _estimate_pitch_period_autocorr(x, sample_rate)
+    # Detect pitch marks (epoch-like locations)
+    pitch_marks = _detect_pitch_marks(signal, sample_rate)
 
-    # If pitch estimation fails, fallback so the system still works
-    if pitch_period is None:
-        y = _linear_resample(x, target_length)
-        return _cast_like_input(y, original_dtype)
+    if len(pitch_marks) < 2:
+        # Fallback for very short / poorly voiced segments
+        return _resample_linear(signal, scale).astype(segment.dtype, copy=False)
 
-    # Build analysis marks
-    analysis_marks = _make_analysis_marks(len(x), pitch_period, x)
+    output = _psola_synthesize(signal, pitch_marks, scale)
 
-    # Need enough marks to do meaningful overlap-add
-    if len(analysis_marks) < 2:
-        y = _linear_resample(x, target_length)
-        return _cast_like_input(y, original_dtype)
+    # Mild peak protection so overlap-add does not overshoot badly
+    peak = np.max(np.abs(output)) if output.size > 0 else 0.0
+    if peak > 1.0:
+        output = output / peak
 
-    # Synthesis spacing controls new duration
-    synthesis_period = pitch_period
-    synthesis_marks = _make_synthesis_marks(target_length, pitch_period, synthesis_period)
+    return output.astype(segment.dtype, copy=False)
 
-    if len(synthesis_marks) == 0:
-        y = _linear_resample(x, target_length)
-        return _cast_like_input(y, original_dtype)
 
-    y = _overlap_add_psola(
-        x=x,
-        analysis_marks=analysis_marks,
-        synthesis_marks=synthesis_marks,
-        pitch_period=pitch_period,
-        target_length=target_length,
+def _refine_mark_to_peak(signal: np.ndarray, mark: int, search_radius: int) -> int:
+    """
+    Refine a rough pitch mark to a nearby strong local waveform extremum.
+    """
+    left = max(0, mark - search_radius)
+    right = min(len(signal), mark + search_radius + 1)
+    if right <= left:
+        return int(np.clip(mark, 0, len(signal) - 1))
+
+    local = signal[left:right]
+    refined = left + np.argmax(np.abs(local))
+    return int(refined)
+
+
+def _detect_pitch_marks(signal: np.ndarray, sample_rate: int) -> np.ndarray:
+    """
+    Detect approximately pitch-synchronous marks using normalized autocorrelation,
+    then refine each mark to a nearby waveform peak.
+    """
+    min_f0, max_f0 = 60, 400  # slightly narrower typical voiced speech band
+    min_period = max(1, sample_rate // max_f0)
+    max_period = max(min_period + 1, sample_rate // min_f0)
+
+    frame_length = max_period * 2
+    if len(signal) < frame_length:
+        return np.array([], dtype=np.int64)
+
+    pitch_marks = []
+    position = 0
+
+    while position + frame_length < len(signal):
+        frame = signal[position:position + frame_length]
+        frame = frame * np.hanning(len(frame))
+
+        autocorr = correlate(frame, frame, mode="full")
+        autocorr = autocorr[len(frame) - 1:]
+
+        if autocorr[0] > 1e-10:
+            autocorr = autocorr / autocorr[0]
+
+        search_region = autocorr[min_period:max_period + 1]
+
+        if len(search_region) == 0:
+            break
+
+        peak_value = float(np.max(search_region))
+        best_period = min_period + int(np.argmax(search_region))
+
+        # If confidence is weak, do not let period jump wildly.
+        if peak_value < 0.30:
+            if pitch_marks:
+                prev_period = pitch_marks[-1] - pitch_marks[-2] if len(pitch_marks) >= 2 else best_period
+                period = int(np.clip(prev_period, min_period, max_period))
+            else:
+                period = int(np.clip(sample_rate // 140, min_period, max_period))
+        else:
+            period = best_period
+
+        if not pitch_marks:
+            rough_mark = position + frame_length // 2
+            refined_mark = _refine_mark_to_peak(signal, rough_mark, max(1, period // 3))
+            pitch_marks.append(refined_mark)
+        else:
+            rough_mark = pitch_marks[-1] + period
+            if rough_mark >= len(signal):
+                break
+            refined_mark = _refine_mark_to_peak(signal, rough_mark, max(1, period // 3))
+
+            # Guard against duplicates / backward movement after refinement
+            if refined_mark <= pitch_marks[-1]:
+                refined_mark = min(len(signal) - 1, pitch_marks[-1] + max(1, period // 2))
+
+            if refined_mark < len(signal):
+                pitch_marks.append(refined_mark)
+
+        position += period
+
+    return np.array(pitch_marks, dtype=np.int64)
+
+
+def _local_periods(pitch_marks: np.ndarray) -> np.ndarray:
+    """
+    Estimate a local pitch period at each mark.
+    """
+    if len(pitch_marks) < 2:
+        return np.array([160], dtype=np.int64)
+
+    diffs = np.diff(pitch_marks)
+    diffs = np.maximum(diffs, 1)
+
+    periods = np.empty(len(pitch_marks), dtype=np.int64)
+    periods[0] = diffs[0]
+    periods[-1] = diffs[-1]
+
+    for i in range(1, len(pitch_marks) - 1):
+        periods[i] = max(1, (diffs[i - 1] + diffs[i]) // 2)
+
+    return periods
+
+
+def _build_output_mark_positions(
+    pitch_marks: np.ndarray,
+    periods: np.ndarray,
+    output_length: int,
+    scale: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Build output pitch-mark positions using period accumulation rather than
+    evenly spaced linspace interpolation.
+
+    Returns:
+        source_indices: which input pitch mark to use for each output grain
+        output_positions: where to place each output grain center
+    """
+    if len(pitch_marks) < 2:
+        return np.array([], dtype=np.int64), np.array([], dtype=np.int64)
+
+    source_indices = []
+    output_positions = []
+
+    if scale >= 1.0:
+        # Stretching: repeat source marks as needed by advancing output position
+        # with a scaled local period, while cycling source marks more gently.
+        out_pos = int(round(pitch_marks[0] * scale))
+        src_idx = 0
+
+        while out_pos < output_length and src_idx < len(pitch_marks):
+            source_indices.append(src_idx)
+            output_positions.append(out_pos)
+
+            local_period = max(1, periods[src_idx])
+            out_pos += int(round(local_period * scale))
+
+            # Advance source index more slowly during stretching
+            src_idx += 1
+
+        # If needed, keep reusing the final few marks to fill tail
+        tail_idx = max(0, len(pitch_marks) - 2)
+        while out_pos < output_length:
+            source_indices.append(tail_idx)
+            output_positions.append(out_pos)
+            local_period = max(1, periods[tail_idx])
+            out_pos += int(round(local_period * scale))
+    else:
+        # Compression: place grains more closely and skip through source marks faster
+        out_pos = int(round(pitch_marks[0] * scale))
+        src_float = 0.0
+        src_step = 1.0 / scale  # > 1, so we skip marks when compressing
+
+        while out_pos < output_length:
+            src_idx = int(round(src_float))
+            if src_idx >= len(pitch_marks):
+                break
+
+            source_indices.append(src_idx)
+            output_positions.append(out_pos)
+
+            local_period = max(1, periods[src_idx])
+            out_pos += max(1, int(round(local_period * scale)))
+            src_float += src_step
+
+    return np.array(source_indices, dtype=np.int64), np.array(output_positions, dtype=np.int64)
+
+
+def _extract_grain(signal: np.ndarray, pitch_marks: np.ndarray, idx: int) -> tuple[np.ndarray, int]:
+    """
+    Extract a grain centered on pitch_marks[idx], with boundaries based on
+    neighboring pitch marks.
+
+    Returns:
+        grain: windowed waveform grain
+        center_offset: index inside grain corresponding to the pitch mark center
+    """
+    current = pitch_marks[idx]
+
+    if idx == 0:
+        prev_mark = max(0, current - (pitch_marks[idx + 1] - current))
+    else:
+        prev_mark = pitch_marks[idx - 1]
+
+    if idx == len(pitch_marks) - 1:
+        next_mark = min(len(signal) - 1, current + (current - pitch_marks[idx - 1]))
+    else:
+        next_mark = pitch_marks[idx + 1]
+
+    left_len = max(1, current - prev_mark)
+    right_len = max(1, next_mark - current)
+
+    grain_start = max(0, current - left_len)
+    grain_end = min(len(signal), current + right_len)
+
+    grain = signal[grain_start:grain_end].copy()
+    if len(grain) < 4:
+        return np.array([], dtype=np.float64), 0
+
+    window = np.hanning(len(grain))
+    grain *= window
+
+    center_offset = current - grain_start
+    return grain, center_offset
+
+
+def _psola_synthesize(signal: np.ndarray, pitch_marks: np.ndarray, scale: float) -> np.ndarray:
+    """
+    Overlap-add synthesis with time-scaled pitch mark positions.
+    """
+    output_length = max(1, int(round(len(signal) * scale)))
+    periods = _local_periods(pitch_marks)
+
+    source_indices, output_positions = _build_output_mark_positions(
+        pitch_marks, periods, output_length, scale
     )
 
-    if len(y) != target_length:
-        y = _fix_length(y, target_length)
+    if len(source_indices) == 0:
+        return _resample_linear(signal, scale)
 
-    # Avoid clipping if overlap-add pushes amplitude above nominal range
-    peak = np.max(np.abs(y)) if len(y) > 0 else 0.0
-    if peak > 1.0:
-        y = y / peak
+    # Padding protects final grains near the output boundary
+    pad = int(max(periods) * 4) if len(periods) > 0 else 1024
+    output = np.zeros(output_length + pad, dtype=np.float64)
+    weight = np.zeros_like(output)
 
-    return _cast_like_input(y, original_dtype)
-
-
-def _estimate_pitch_period_autocorr(
-    x: np.ndarray,
-    sample_rate: int,
-    f0_min: float = 70.0,
-    f0_max: float = 300.0,
-) -> int | None:
-    """
-    Estimate a single global pitch period using autocorrelation.
-    Returns pitch period in samples, or None if no reliable estimate is found.
-    """
-    if len(x) < 3:
-        return None
-
-    x = x - np.mean(x)
-    energy = np.sum(x * x)
-    if energy <= 1e-12:
-        return None
-
-    min_lag = max(1, int(sample_rate / f0_max))
-    max_lag = min(len(x) - 1, int(sample_rate / f0_min))
-
-    if min_lag >= max_lag:
-        return None
-
-    autocorr = np.correlate(x, x, mode="full")
-    autocorr = autocorr[len(x) - 1:]  # nonnegative lags only
-
-    search_region = autocorr[min_lag : max_lag + 1]
-    if len(search_region) == 0:
-        return None
-
-    best_offset = int(np.argmax(search_region))
-    best_lag = min_lag + best_offset
-
-    # Simple reliability check using normalized autocorrelation peak
-    normalized_peak = autocorr[best_lag] / (autocorr[0] + 1e-12)
-    if normalized_peak < 0.2:
-        return None
-
-    return best_lag
-
-
-def _make_analysis_marks(length: int, pitch_period: int, x: np.ndarray) -> np.ndarray:
-    """
-    Create approximately pitch-spaced analysis marks and snap them
-    to nearby positive peaks for better phase consistency.
-    """
-    if pitch_period <= 0 or length <= 0:
-        return np.array([], dtype=int)
-
-    start = pitch_period
-    stop = max(start, length - pitch_period)
-    if start >= stop:
-        return np.array([], dtype=int)
-
-    predicted_marks = np.arange(start, stop, pitch_period, dtype=int)
-    search_radius = max(1, pitch_period // 4)
-
-    snapped_marks = []
-    last_mark = -1
-
-    for mark in predicted_marks:
-        left = max(0, mark - search_radius)
-        right = min(length, mark + search_radius + 1)
-        if right <= left:
+    for src_idx, out_pos in zip(source_indices, output_positions):
+        grain, center_offset = _extract_grain(signal, pitch_marks, src_idx)
+        if len(grain) == 0:
             continue
 
-        local = x[left:right]
+        out_start = out_pos - center_offset
+        out_end = out_start + len(grain)
 
-        # Prefer the strongest positive peak for phase consistency
-        local_idx = int(np.argmax(local))
-        snapped = left + local_idx
+        grain_start = 0
+        grain_end = len(grain)
 
-        if snapped <= last_mark:
+        if out_start < 0:
+            grain_start = -out_start
+            out_start = 0
+
+        if out_end > len(output):
+            trim = out_end - len(output)
+            grain_end -= trim
+            out_end = len(output)
+
+        if grain_end <= grain_start or out_end <= out_start:
             continue
 
-        if snapped - pitch_period < 0 or snapped + pitch_period > length:
+        grain_slice = grain[grain_start:grain_end]
+
+        # Use a matching synthesis weight for normalization
+        synth_window = np.hanning(len(grain_slice))
+        if len(synth_window) != len(grain_slice):
             continue
 
-        snapped_marks.append(snapped)
-        last_mark = snapped
-
-    return np.array(snapped_marks, dtype=int)
-
-
-def _make_synthesis_marks(
-    target_length: int,
-    analysis_period: int,
-    synthesis_period: int,
-) -> np.ndarray:
-    """
-    Create synthesis marks for the output timeline.
-    """
-    if target_length <= 0 or analysis_period <= 0 or synthesis_period <= 0:
-        return np.array([], dtype=int)
-
-    start = analysis_period
-    stop = max(start, target_length - analysis_period)
-    if start >= stop:
-        return np.array([], dtype=int)
-
-    return np.arange(start, stop, synthesis_period, dtype=int)
-
-
-def _overlap_add_psola(
-    x: np.ndarray,
-    analysis_marks: np.ndarray,
-    synthesis_marks: np.ndarray,
-    pitch_period: int,
-    target_length: int,
-) -> np.ndarray:
-    """
-    Window grains centered at analysis marks and overlap-add them at synthesis marks.
-    """
-    grain_half_width = pitch_period
-    grain_length = 2 * grain_half_width
-
-    if grain_length < 2:
-        return _linear_resample(x, target_length)
-
-    window = np.hanning(grain_length)
-    y = np.zeros(target_length + 2 * grain_half_width, dtype=np.float64)
-    weight = np.zeros_like(y)
-
-    num_analysis = len(analysis_marks)
-    num_synthesis = len(synthesis_marks)
-
-    used_grains = 0
-    skipped_grains = 0
-
-    for j, synth_mark in enumerate(synthesis_marks):
-        # Map synthesis grain index to analysis grain index proportionally
-        if num_synthesis == 1:
-            analysis_idx = 0
-        else:
-            analysis_idx = int(round(j * (num_analysis - 1) / (num_synthesis - 1)))
-
-        analysis_mark = int(analysis_marks[analysis_idx])
-
-        src_start = analysis_mark - grain_half_width
-        src_end = analysis_mark + grain_half_width
-        dst_start = int(synth_mark - grain_half_width)
-        dst_end = int(synth_mark + grain_half_width)
-
-        if src_start < 0 or src_end > len(x):
-            skipped_grains += 1
-            continue
-        if dst_start < 0 or dst_end > len(y):
-            skipped_grains += 1
-            continue
-
-        grain = x[src_start:src_end]
-        if len(grain) != grain_length:
-            skipped_grains += 1
-            continue
-
-        grain_windowed = grain * window
-        y[dst_start:dst_end] += grain_windowed
-        weight[dst_start:dst_end] += window
-        used_grains += 1
+        output[out_start:out_end] += grain_slice
+        weight[out_start:out_end] += synth_window
 
     nonzero = weight > 1e-8
-    y[nonzero] /= weight[nonzero]
+    output[nonzero] /= weight[nonzero]
 
-    print(f"[PSOLA] used_grains={used_grains}, skipped_grains={skipped_grains}")
+    output = output[:output_length]
 
-    y = y[:target_length]
-    return y
+    # Remove tiny DC bias that can sometimes build up
+    if output.size > 0:
+        output = output - np.mean(output)
+
+    return output
 
 
-def _linear_resample(x: np.ndarray, target_length: int) -> np.ndarray:
+def _resample_linear(signal: np.ndarray, scale: float) -> np.ndarray:
     """
-    Simple linear interpolation fallback.
+    Simple linear interpolation fallback for edge cases.
     """
-    if target_length <= 0:
-        return np.array([], dtype=np.float64)
+    output_length = int(round(len(signal) * scale))
+    if output_length <= 0:
+        return np.array([], dtype=signal.dtype)
 
-    if len(x) == 0:
-        return np.zeros(target_length, dtype=np.float64)
-
-    if len(x) == 1:
-        return np.full(target_length, x[0], dtype=np.float64)
-
-    old_positions = np.linspace(0.0, 1.0, num=len(x))
-    new_positions = np.linspace(0.0, 1.0, num=target_length)
-    return np.interp(new_positions, old_positions, x)
-
-
-def _fix_length(x: np.ndarray, target_length: int) -> np.ndarray:
-    """
-    Trim or zero-pad to exact length.
-    """
-    if len(x) == target_length:
-        return x
-    if len(x) > target_length:
-        return x[:target_length]
-
-    y = np.zeros(target_length, dtype=x.dtype)
-    y[: len(x)] = x
-    return y
-
-
-def _cast_like_input(x: np.ndarray, original_dtype: np.dtype) -> np.ndarray:
-    """
-    Cast output back to the general dtype family of the input.
-    """
-    if np.issubdtype(original_dtype, np.integer):
-        info = np.iinfo(original_dtype)
-        x = np.clip(x, info.min, info.max)
-        return np.rint(x).astype(original_dtype)
-
-    return x.astype(original_dtype, copy=False)
+    indices = np.linspace(0, len(signal) - 1, output_length)
+    return np.interp(indices, np.arange(len(signal)), signal)
