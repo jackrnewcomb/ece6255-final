@@ -1,5 +1,6 @@
 \documentclass{article}
 \usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
 
 \title{ECE6255 - Team 9 Report}
 \author{Jack Newcomb, Anish Nair, Hao Ma}
@@ -223,16 +224,66 @@ Finally, qualitative listening evaluation was used alongside the generated plots
 
 \section{Results}
 
+The final system successfully implemented an end-to-end workflow for user-directed duration modification of selected speech segments. The framework was able to load an input mono WAV file, accept an edit request, extract the specified segment, apply TD-PSOLA-based duration modification, reconstruct the waveform, and write the edited result to a new output file.
+
+The primary demonstration case used throughout development involved a speech recording of a woman reading a narrative passage. In the relevant portion of the input, the utterance included the sentence: “He had little enough to break or bite, and once, when there was a great famine in the land, he could hardly procure even his daily bread. And as he lay thinking in his bed one night, he sighed and said to his wife, ‘what will become of us’.” The demonstration command used for this case was:
+
+\begin{verbatim}
+python main.py examples/test.wav --output examples/output_test.wav --t1 5 --t2 10 --scale 1.5
+\end{verbatim}
+
+This command applies duration expansion to the segment from 5 s to 10 s in the original waveform using a scale factor of 1.5. In perceptual terms, the modification begins around the portion of the utterance starting with “he could hardly procure...”, and the selected region is stretched relative to the original signal.
+
+Evaluation of this demonstration case showed that the system performed the requested duration modification correctly at the file level. The original recording had a total duration of 15.22 s, while the modified output had a duration of 17.72 s, corresponding to an increase of 2.50 s. This matches the requested edit: the selected region was 5 s long, and scaling that region by a factor of 1.5 increases its duration to 7.5 s, producing a net increase of 2.5 s in the full output waveform.
+
+Signal-level summary statistics also remained stable after modification. The RMS amplitude changed only slightly, from 0.0734 in the original signal to 0.0714 in the modified signal, and the peak absolute amplitude remained nearly unchanged, increasing only from 0.7798 to 0.7852. These values indicate that the duration-modification process changed the temporal structure of the selected region without causing large overall amplitude distortion.
+
+Region-focused evaluation around the 5 s to 10 s edit interval also showed clear local divergence between the original and modified waveforms, as shown in Figure~\ref{fig:region_waveform}. The corresponding modified spectrogram, shown in Figure~\ref{fig:region_spectrogram}, indicates that the broad time-frequency structure of the speech was preserved despite the temporal expansion. In particular, the waveform comparison around the edited region made it visually apparent that the modified signal no longer aligns with the original after the onset of the edit, which is consistent with the inserted temporal expansion in that segment. Region-focused spectrograms likewise showed that the modified output retained the broad time-frequency structure of speech while reflecting the temporal changes introduced by the duration-modification process.
+
+\begin{figure}[tbp]
+    \centering
+    \includegraphics[width=0.8\textwidth]{waveform_region_comparison.png} 
+    \caption{Region-focused waveform comparison for the 5 s to 10 s edited interval. The modified waveform diverges from the original after the onset of the duration modification, consistent with temporal expansion of the selected speech segment.}
+    \label{fig:region_waveform}
+\end{figure}
+
+\begin{figure}[tbp]
+    \centering
+    \includegraphics[width=0.8\textwidth]{spectrogram_region_modified.png} 
+    \caption{Region-focused spectrogram of the modified signal around the edited interval. The modified output preserves the broad time-frequency structure of the speech while reflecting the temporal expansion introduced by the edit.}
+    \label{fig:region_spectrogram}
+\end{figure}
+
+Perceptually, the modified result remained intelligible, and the speech was still recognizable as the same speaker with much of the original tone and inflection preserved. At the same time, the output was not artifact-free. Listening evaluation indicated audible degradation in the modified segment, particularly a degree of roughness or warbling introduced by the PSOLA-based duration-modification process. These artifacts were noticeable enough that the output clearly sounded modified, but they did not prevent the speech from remaining understandable.
+
+Beyond the main perceptual demonstration, the software framework also successfully supported additional functionality such as target-duration editing, CSV-based batch edit input, timeline remapping for multiple edits relative to the original waveform, and rejection of overlapping edit regions. These features were important results from the software-engineering perspective, even though the primary qualitative evaluation focused on the single-edit speech demonstration described above.
+
+Overall, the strongest result of the project is that it produced a complete and functional duration-editing framework rather than only an isolated signal-processing routine. While the perceptual quality of the modified speech still leaves room for improvement, the final system demonstrates that arbitrary user-specified segment duration changes can be represented, validated, processed, and evaluated within a coherent and extensible architecture.
+
 \section{Discussion and Limitations}
+
+A major strength of this project is that it produced more than an isolated signal-processing routine. In addition to the core duration-modification algorithm, the project resulted in a complete software framework for speech-segment editing, including WAV input/output, edit validation, single-edit and batch-edit workflows, reconstruction logic, automated testing, and evaluation tooling. From a software-engineering perspective, this broader system design is one of the strongest outcomes of the project.
+
+At the same time, the perceptual quality of the final edited speech reveals important limitations of the current implementation. Although the system successfully performed the requested duration modification and produced intelligible output, the edited speech was not artifact-free. In the primary demonstration case, the modified segment remained understandable and preserved much of the speaker’s tone and identity, but it also exhibited audible roughness and warbling. This indicates that while the TD-PSOLA-based approach was effective as a proof of concept, its current implementation does not yet achieve consistently natural-sounding speech modification.
+
+One likely source of these artifacts is the difficulty of accurate pitch-mark estimation. The implemented method detects approximate pitch-synchronous marks using short-time autocorrelation and then refines them to nearby waveform extrema. While this approach is reasonable and lightweight, it is still sensitive to pitch-estimation errors, local waveform irregularities, and transitions between voiced and unvoiced speech. If pitch marks are not aligned well, overlap-add synthesis can introduce discontinuities or unnatural modulation in the edited output.
+
+A second limitation is that the evaluation methodology, while useful, was not exhaustive. The project included waveform comparisons, spectrogram visualizations, and basic signal-level metrics such as duration, RMS amplitude, and peak amplitude, together with qualitative listening-based assessment. These methods were sufficient to verify that the requested duration change occurred and that the broad structure of the speech signal was preserved, but they do not constitute a full perceptual evaluation. More advanced speech-quality metrics or broader listening studies would be needed to assess naturalness more rigorously.
+
+Another limitation is that the primary qualitative evaluation focused on one main single-edit demonstration case. This case was useful because it clearly illustrated the intended behavior of the framework, but a broader set of examples would provide stronger evidence of robustness across different speakers, phonetic content, and edit magnitudes. Similarly, while batch editing and target-duration functionality were implemented and validated within the software framework, the most detailed perceptual analysis in this report centered on a single stretched segment rather than on a broader collection of edit scenarios.
+
+Finally, the project necessarily balanced algorithmic refinement against software completeness. Significant effort was devoted to building a modular architecture, validating user inputs, supporting batch workflows, and constructing testing and evaluation tools. This improved the overall completeness and usability of the project, but it also limited the time available for more extensive tuning of the TD-PSOLA stage itself. As a result, the software framework is more mature than the perceptual polish of the final speech output.
+
+Future work could improve the system in several ways. More robust pitch-mark detection, smoother boundary handling during reinsertion, and improved treatment of voiced/unvoiced transitions would likely reduce audible artifacts. An additional direction for future work would be support for contour-based duration control, in which the time-scaling applied within a selected segment varies according to a user-specified contour rather than remaining uniform across the entire interval. This would make the system more flexible and could enable more natural or expressive modifications than a single global scaling factor alone. Additional evaluation across multiple speech examples and edit configurations would also strengthen confidence in the method. More broadly, the modular architecture developed in this project provides a good foundation for experimenting with refined PSOLA variants or alternative duration-modification techniques in future work.
 
 \section{Conclusion}
 
-This project developed a modular software framework for arbitrary duration modification of selected segments within a speech waveform. The system was designed to support flexible user-specified edits through either scale-factor-based or target-duration-based input, while maintaining a clear separation between waveform processing, edit specification, segment extraction, reconstruction, and evaluation.
+This project developed a modular software framework for arbitrary duration modification of selected segments within a speech waveform. The system supports user-specified edits through either scale-factor-based or target-duration-based input, and provides an end-to-end pipeline including WAV input/output, edit validation, segment extraction, duration modification, waveform reconstruction, batch processing, and evaluation support.
 
-A central goal of the implementation was to build an end-to-end pipeline that could support both algorithm development and practical use. To that end, the project provides functionality for mono WAV input/output, single-edit and batch-edit workflows, validation of user inputs, rejection of overlapping edit regions, and supporting tools for evaluation and testing. This modular design allowed substantial portions of the framework to be implemented and verified independently of the final duration-modification algorithm.
+The core duration-modification method selected for the project was a TD-PSOLA-based approach. Within the completed framework, this method serves as the algorithmic mechanism used to lengthen or shorten selected speech regions while attempting to preserve perceptually important characteristics of the original signal.
 
-The selected core method for duration modification is PSOLA, a well-established speech processing technique for time-scale modification of voiced speech. Within the broader software framework, PSOLA serves as the principal algorithmic mechanism for changing segment duration while seeking to preserve perceptually important speech characteristics. The surrounding system was intentionally structured to make this algorithm easier to integrate, test, and evaluate.
+The final results show that the system successfully performs targeted duration edits and produces intelligible modified speech, while also revealing the practical challenges of artifact reduction in real speech processing. In the primary demonstration case, the requested temporal expansion was achieved correctly at the file level, and the output remained recognizable as the original speaker, although audible roughness and warbling were still present in the edited region.
 
-Overall, the project demonstrates both the signal-processing and software-engineering components required for arbitrary segment duration modification in speech. In addition to addressing the immediate project goals, the resulting framework provides a foundation that can be extended in future work to support more advanced duration-modification methods, additional speech characteristics, and more sophisticated evaluation procedures.
+Overall, the project achieved its primary goal of building a functional and extensible duration-modification framework for speech. In addition to satisfying the immediate project objectives, the resulting architecture provides a strong foundation for future refinements to pitch-mark detection, overlap-add synthesis quality, contour-based duration control, and broader perceptual evaluation.
 
 \end{document}
