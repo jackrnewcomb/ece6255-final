@@ -23,27 +23,6 @@ This repository currently focuses on:
 - **evaluation tooling** for waveform/spectrogram comparison and simple metrics,
 - and **test coverage** for the framework around the duration-modification algorithm.
 
-## Current Status
-
-### Implemented
-- WAV input/output for mono audio
-- Segment extraction by time interval
-- Segment replacement / stitching
-- Single-edit CLI mode
-- Batch-edit CLI mode using CSV
-- Support for either:
-  - `scale`, or
-  - `target_duration`
-- Batch timing behavior defined relative to the **original input timeline**
-- Rejection of overlapping batch edits
-- Evaluation script for plots and metrics
-- Unit/integration-style tests for key framework behavior
-
-### Not Yet Implemented
-- Final PSOLA duration-modification algorithm
-- Contour-based duration modification input
-- Final report and presentation artifacts
-
 ## Repository Structure
 
 ```text
@@ -74,7 +53,7 @@ This repository currently focuses on:
 ## Requirements
 
 Recommended environment: 
-- Python 3.10+
+- Python 3.12+
 - `numpy`
 - `scipy`
 - `matplotlib`
