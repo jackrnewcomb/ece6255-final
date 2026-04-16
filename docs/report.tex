@@ -1,6 +1,8 @@
 \documentclass{article}
 \usepackage[margin=1in]{geometry}
 \usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
 
 \title{ECE6255 - Team 9 Report}
 \author{Jack Newcomb, Anish Nair, Hao Ma}
@@ -16,7 +18,7 @@ The goal of this project is to develop a software system for modifying the durat
 
 To support this goal, a modular processing pipeline was designed that loads an input audio signal, parses one or more requested edits, applies duration modification to the selected segments, and writes the resulting output signal. This structure separates the signal-processing algorithm from the surrounding application logic, making the system easier to test, validate, and extend.
 
-For the core duration-modification stage, we selected the Pitch-Synchronous Overlap and Add (PSOLA) method. PSOLA is a well-known speech processing technique for time-scale modification because it allows changes in segment duration while better preserving pitch-related structure than naive resampling approaches. In this project, PSOLA serves as the primary algorithmic method for modifying speech duration within the broader editing framework.
+For the core duration-modification stage, we selected the Time-Domain Pitch-Synchronous Overlap and Add (TD-PSOLA) method. PSOLA is a well-known speech processing technique for time-scale modification because it allows changes in segment duration while better preserving pitch-related structure than naive resampling approaches. In this project, PSOLA serves as the primary algorithmic method for modifying speech duration within the broader editing framework.
 
 \section{System Overview}
 
@@ -96,7 +98,7 @@ The project was designed to support straightforward command-line use for both si
 
 \subsection{Environment and Dependencies}
 
-The recommended execution environment for the project is Python 3.10 or later. The primary dependencies used by the framework are \texttt{numpy}, \texttt{scipy}, \texttt{matplotlib}, and \texttt{pytest}. These libraries support waveform manipulation, file I/O, visualization, and testing.
+The recommended execution environment for the project is Python 3.12 or later. The primary dependencies used by the framework are \texttt{numpy}, \texttt{scipy}, \texttt{matplotlib}, and \texttt{pytest}. These libraries support waveform manipulation, file I/O, visualization, and testing.
 
 Dependencies may be installed with:
 
@@ -238,7 +240,7 @@ Evaluation of this demonstration case showed that the system performed the reque
 
 Signal-level summary statistics also remained stable after modification. The RMS amplitude changed only slightly, from 0.0734 in the original signal to 0.0714 in the modified signal, and the peak absolute amplitude remained nearly unchanged, increasing only from 0.7798 to 0.7852. These values indicate that the duration-modification process changed the temporal structure of the selected region without causing large overall amplitude distortion.
 
-Region-focused evaluation around the 5 s to 10 s edit interval also showed clear local divergence between the original and modified waveforms, as shown in Figure~\ref{fig:region_waveform}. The corresponding modified spectrogram, shown in Figure~\ref{fig:region_spectrogram}, indicates that the broad time-frequency structure of the speech was preserved despite the temporal expansion. In particular, the waveform comparison around the edited region made it visually apparent that the modified signal no longer aligns with the original after the onset of the edit, which is consistent with the inserted temporal expansion in that segment. Region-focused spectrograms likewise showed that the modified output retained the broad time-frequency structure of speech while reflecting the temporal changes introduced by the duration-modification process.
+Region-focused evaluation around the 5 s to 10 s edit interval also showed clear local divergence between the original and modified waveforms, as shown in Figure~1. In particular, the waveform comparison around the edited region made it visually apparent that the modified signal no longer aligns with the original after the onset of the edit, which is consistent with the inserted temporal expansion in that segment. The corresponding spectrogram comparison, shown in Figure~2, indicates that the modified output retained the broad time-frequency structure of speech while reflecting the temporal changes introduced by the duration-modification process.
 
 \begin{figure}[tbp]
     \centering
@@ -249,9 +251,21 @@ Region-focused evaluation around the 5 s to 10 s edit interval also showed clear
 
 \begin{figure}[tbp]
     \centering
-    \includegraphics[width=0.8\textwidth]{spectrogram_region_modified.png} 
-    \caption{Region-focused spectrogram of the modified signal around the edited interval. The modified output preserves the broad time-frequency structure of the speech while reflecting the temporal expansion introduced by the edit.}
-    \label{fig:region_spectrogram}
+    \begin{subfigure}[t]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{spectrogram_region_original.png}
+        \caption{Original signal spectrogram around the edited interval.}
+        \label{fig:region_spec_original}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[t]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{spectrogram_region_modified.png}
+        \caption{Modified signal spectrogram around the edited interval.}
+        \label{fig:region_spec_modified}
+    \end{subfigure}
+    \caption{Region-focused spectrogram comparison for the 5 s to 10 s edited interval. Left: original signal. Right: modified signal. The modified output retains the broad time-frequency structure of speech while reflecting the applied duration expansion.}
+    \label{fig:region_spectrogram_comparison}
 \end{figure}
 
 Perceptually, the modified result remained intelligible, and the speech was still recognizable as the same speaker with much of the original tone and inflection preserved. At the same time, the output was not artifact-free. Listening evaluation indicated audible degradation in the modified segment, particularly a degree of roughness or warbling introduced by the PSOLA-based duration-modification process. These artifacts were noticeable enough that the output clearly sounded modified, but they did not prevent the speech from remaining understandable.
