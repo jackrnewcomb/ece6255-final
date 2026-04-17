@@ -192,7 +192,7 @@ These tests provide some unit test coverage of key framework functionality, incl
 
 \section{Duration Modification Algorithm}
 
-The core duration-modification method was chosen as a time-domain Pitch-Synchronous Overlap and Add (TD-PSOLA) approach. PSOLA is commonly used for speech time-scale modification because it changes segment duration by reusing short waveform regions aligned to the local pitch structure, which can better preserve speech characteristics than standard global resampling.
+The core duration-modification method was chosen as a time-domain Pitch-Synchronous Overlap and Add (TD-PSOLA) approach. The TD-PSOLA duration-modification algorithm used in this project was self-implemented via \texttt{psola.py}, using standard Python libraries for array operations and autocorrelation support rather than an external PSOLA codebase. PSOLA is commonly used for speech time-scale modification because it changes segment duration by reusing short waveform regions aligned to the local pitch structure, which can better preserve speech characteristics than standard global resampling.
 
 In \texttt{psola.py}, duration scaling begins by detecting approximately pitch-synchronous marks within the selected segment. This is done using an autocorrelation-based analysis over short frames. For each frame, the algorithm searches for a plausible pitch period within a voiced-speech range, and refines the corresponding mark to a nearby strong waveform extremum. This step is intended to align synthesis more closely to the local waveform structure.
 
