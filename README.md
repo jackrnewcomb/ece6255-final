@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project implements a modular framework for arbitrary duration modification of user-specified regions in a speech waveform. The target challenge is **Challenge 3: Arbitrary Modification of Speech Characteristics in Segmental Durations**, which calls for changing the duration of selected portions of a speech signal while preserving essential properties such as pitch contour and spectral characteristics. 
+This project implements a framework for arbitrary duration modification of user-specified regions in a speech waveform. The target challenge is **Challenge 3: Arbitrary Modification of Speech Characteristics in Segmental Durations**, which calls for changing the duration of selected portions of a speech signal while attempting to preserve essential properties such as pitch contour and spectral characteristics. 
 
 The current repository provides the end-to-end processing pipeline for:
 - loading mono WAV audio,
@@ -15,13 +15,9 @@ The current repository provides the end-to-end processing pipeline for:
 
 ## Project Scope
 
-The assignment requires code, usage instructions, examples, evaluation, and documentation that can be useful to future students as well as the current course staff.
+The assignment requires code, usage instructions, examples, evaluation, and documentation that can be useful to future students.
 
-This repository currently focuses on:
-- **single-region duration modification** via either a scale factor or a target duration,
-- **batch region modification** via a CSV specification file,
-- **evaluation tooling** for waveform/spectrogram comparison and simple metrics,
-- and **test coverage** for the framework around the duration-modification algorithm.
+This repository currently focuses on single-region duration modification via either a scale factor or a target duration, batch region modification via a CSV specification file, evaluation tooling for waveform/spectrogram comparison and simple metrics, and test coverage for the framework around the duration-modification algorithm.
 
 ## Repository Structure
 
@@ -29,16 +25,14 @@ This repository currently focuses on:
 .
 ├── main.py                  # Command-line entry point
 ├── examples/
-│   ├── tsignal.wav          # Example input audio
+│   ├── test.wav             # Example input audio
 │   ├── sample_input.csv     # Example batch edit specification
-│   ├── out.wav
-│   └── output.wav
 ├── scripts/
 │   └── evaluate.py          # Evaluation plots and metrics
 ├── src/
 │   ├── audio_io.py          # WAV loading/saving
 │   ├── interface.py         # High-level processing pipeline
-│   ├── psola.py             # Time-scaling algorithm hook (currently placeholder)
+│   ├── psola.py             # Time-scaling algorithm 
 │   ├── segment.py           # Segment extraction utilities
 │   ├── stitch.py            # Segment stitching logic
 │   └── utils.py             # CSV edit-spec parsing
@@ -75,7 +69,7 @@ The high-level processing flow is:
 prefix
 target segment
 suffix
-4. Pass the target segment to time_scale_psola(...)
+4. Pass the target segment to the psola algorithm
 5. Validate the returned processed segment
 6. Stitch the output back together
 7. Save the modified WAV file
@@ -96,7 +90,7 @@ Use single-edit mode when modifying one region of the input file.
 **Option A: Specify a scale factor**
 
 ```py
-python main.py examples/tsignal.wav --output examples/output.wav --t1 0.20 --t2 0.40 --scale 1.5
+python main.py examples/test.wav --output examples/output.wav --t1 0.20 --t2 0.40 --scale 1.5
 ```
 
 This stretches the region from 0.20 s to 0.40 s by a factor of 1.5.
@@ -104,17 +98,17 @@ This stretches the region from 0.20 s to 0.40 s by a factor of 1.5.
 **Option B: Specify a target duration**
 
 ```py
-python main.py examples/tsignal.wav --output examples/output.wav --t1 0.20 --t2 0.40 --target-duration 0.50
+python main.py examples/test.wav --output examples/output.wav --t1 0.20 --t2 0.40 --target-duration 0.50
 ```
 
 This changes the selected region so that its new duration is 0.50 s.
 
-### Batch Edit Mode
+### Multi Edit Mode
 
-Use batch-edit mode to apply multiple edits from a CSV specification file:
+Use multi-edit mode to apply multiple edits from a CSV specification file:
 
 ```py
-python main.py examples/tsignal.wav --output examples/output.wav --csv examples/sample_input.csv
+python main.py examples/test.wav --output examples/output.wav --csv examples/sample_input.csv
 ```
 
 ## CSV Format
@@ -138,14 +132,14 @@ t1,t2,scale,target_duration
 0.60,0.80,,0.30
 ```
 
-### Batch Timing Convention
+### Multi Timing Convention
 
-In batch mode, edit times are interpreted relative to the original input file timeline, not the progressively modified output timeline.
+In multi-edit mode, edit times are interpreted relative to the original input file timeline, not the progressively modified output timeline.
 
 Therefore, if an earlier edit changes duration,
 later edit times are automatically remapped onto the current modified signal so they still refer to the intended original regions.
 
-### Batch Edit Restrictions
+### Multi Edit Restrictions
 
 Overlapping edits in the original timeline are not supported and will raise an error.
 
@@ -165,7 +159,7 @@ The repository includes an evaluation script for comparing original and modified
 
 ### Basic usage
 ```py
-python scripts/evaluate.py --original examples/tsignal.wav --modified examples/output.wav --report-dir reports/basic_eval
+python scripts/evaluate.py --original examples/test.wav --modified examples/output.wav --report-dir reports/basic_eval
 ```
 
 This generates:
@@ -178,7 +172,7 @@ This generates:
 ### Region-focused evaluation
 
 ```py
-python scripts/evaluate.py --original examples/tsignal.wav --modified examples/output.wav --report-dir reports/region_eval --t1 0.20 --t2 0.40 --margin 0.10
+python scripts/evaluate.py --original examples/test.wav --modified examples/output.wav --report-dir reports/region_eval --t1 0.20 --t2 0.40
 ```
 
 This additionally generates:
