@@ -1,4 +1,4 @@
-# ECE6255 Term Project: Arbitrary Segment Duration Modification for Speech
+# Arbitrary Segment Duration Modification for Speech
 
 ## Overview
 
